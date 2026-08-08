@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -126,10 +128,42 @@ func (r *groupResource) Read(ctx context.Context, req resource.ReadRequest, resp
 		return
 	}
 	if state.Location.IsNull() || state.Location.IsUnknown() {
-		state.Location = types.StringValue(group.Primary)
+		location, err := canonicalGroupLocation(group)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Unable to determine the Turso group location",
+				err.Error(),
+			)
+			return
+		}
+		state.Location = types.StringValue(location)
 	}
 	setGroupResourceState(ctx, &state, org, group, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+// canonicalGroupLocation returns a location key accepted by Turso's create API.
+// The API's primary field may contain a region name (for example us-east-1)
+// while locations contains the canonical provider key (aws-us-east-1).
+func canonicalGroupLocation(group *client.Group) (string, error) {
+	if group == nil {
+		return "", errors.New("the Turso API returned an empty group")
+	}
+	primary := strings.TrimSpace(group.Primary)
+	for _, location := range group.Locations {
+		if location == primary {
+			return location, nil
+		}
+	}
+	for _, location := range group.Locations {
+		if primary != "" && strings.HasSuffix(location, "-"+primary) {
+			return location, nil
+		}
+	}
+	if len(group.Locations) == 1 && group.Locations[0] != "" {
+		return group.Locations[0], nil
+	}
+	return "", fmt.Errorf("cannot map Turso primary location %q to canonical location keys %v", primary, group.Locations)
 }
 
 func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {

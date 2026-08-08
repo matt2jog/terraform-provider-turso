@@ -23,13 +23,13 @@ func TestGroupResourceCRUDAndDeleteProtection(t *testing.T) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/organizations/acme/groups":
 			exists = true
-			_, _ = w.Write([]byte(`{"group":{"name":"main","uuid":"group-id","locations":["aws-us-east-1"],"primary":"aws-us-east-1"}}`))
+			_, _ = w.Write([]byte(`{"group":{"name":"main","uuid":"group-id","locations":["aws-us-east-1"],"primary":"us-east-1"}}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/organizations/acme/groups/main":
 			if !exists {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			_ = json.NewEncoder(w).Encode(client.GroupResponse{Group: client.Group{Name: "main", UUID: "group-id", Locations: []string{"aws-us-east-1"}, Primary: "aws-us-east-1", DeleteProtection: deleteProtection}})
+			_ = json.NewEncoder(w).Encode(client.GroupResponse{Group: client.Group{Name: "main", UUID: "group-id", Locations: []string{"aws-us-east-1"}, Primary: "us-east-1", DeleteProtection: deleteProtection}})
 		case r.Method == http.MethodPatch && r.URL.Path == "/v1/organizations/acme/groups/main/configuration":
 			var body client.GroupConfiguration
 			_ = json.NewDecoder(r.Body).Decode(&body)
@@ -74,6 +74,9 @@ func TestGroupResourceCRUDAndDeleteProtection(t *testing.T) {
 	if state.ID.ValueString() != "acme/main" || !state.DeleteProtection.ValueBool() || !deleteProtection {
 		t.Fatalf("state after create = %#v, remote protection=%v", state, deleteProtection)
 	}
+	if state.Location.ValueString() != "aws-us-east-1" || state.PrimaryLocation.ValueString() != "us-east-1" {
+		t.Fatalf("locations after create = location %q primary %q", state.Location.ValueString(), state.PrimaryLocation.ValueString())
+	}
 
 	protectedDelete := resource.DeleteResponse{}
 	r.Delete(ctx, resource.DeleteRequest{State: createResponse.State}, &protectedDelete)
@@ -93,6 +96,59 @@ func TestGroupResourceCRUDAndDeleteProtection(t *testing.T) {
 	r.Delete(ctx, resource.DeleteRequest{State: updateResponse.State}, &deleteResponse)
 	if deleteResponse.Diagnostics.HasError() || exists {
 		t.Fatalf("delete diagnostics=%v exists=%v", deleteResponse.Diagnostics, exists)
+	}
+}
+
+func TestImportedGroupReadUsesCanonicalLocationKey(t *testing.T) {
+	ctx := context.Background()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/organizations/acme/groups/main" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(client.GroupResponse{Group: client.Group{
+			Name:             "main",
+			UUID:             "group-id",
+			Locations:        []string{"aws-us-east-1"},
+			Primary:          "us-east-1",
+			DeleteProtection: true,
+		}})
+	}))
+	defer server.Close()
+
+	apiClient, err := client.New(server.URL, "secret", "acme", "test", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &groupResource{client: apiClient}
+	var schemaResponse resource.SchemaResponse
+	r.Schema(ctx, resource.SchemaRequest{}, &schemaResponse)
+
+	importResponse := resource.ImportStateResponse{State: tfsdk.State{Schema: schemaResponse.Schema}}
+	if diagnostics := importResponse.State.Set(ctx, &groupResourceModel{Locations: types.SetNull(types.StringType)}); diagnostics.HasError() {
+		t.Fatalf("initialize state diagnostics: %v", diagnostics)
+	}
+	r.ImportState(ctx, resource.ImportStateRequest{ID: "acme/main"}, &importResponse)
+	if importResponse.Diagnostics.HasError() {
+		t.Fatalf("import diagnostics: %v", importResponse.Diagnostics)
+	}
+
+	response := resource.ReadResponse{State: tfsdk.State{Schema: schemaResponse.Schema}}
+	r.Read(ctx, resource.ReadRequest{State: importResponse.State}, &response)
+	if response.Diagnostics.HasError() {
+		t.Fatalf("read diagnostics: %v", response.Diagnostics)
+	}
+	var refreshed groupResourceModel
+	if diagnostics := response.State.Get(ctx, &refreshed); diagnostics.HasError() {
+		t.Fatalf("state diagnostics: %v", diagnostics)
+	}
+	if got := refreshed.Location.ValueString(); got != "aws-us-east-1" {
+		t.Fatalf("location = %q, want canonical key %q", got, "aws-us-east-1")
+	}
+	if got := refreshed.PrimaryLocation.ValueString(); got != "us-east-1" {
+		t.Fatalf("primary_location = %q, want API region %q", got, "us-east-1")
 	}
 }
 
