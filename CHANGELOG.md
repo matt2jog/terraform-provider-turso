@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4 - 2026-08-08
+
+- Preserve the configured or prior-state organization during in-place group
+  and database configuration updates.
+
 ## 0.1.3 - 2026-08-08
 
 - Preserve Turso's canonical location key when importing a group whose primary

@@ -51,8 +51,11 @@ func (r *databaseResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages a Turso database. Database auth tokens are created outside Terraform. Disable delete_protection in a separate apply before destroying it.",
 		Attributes: map[string]schema.Attribute{
-			"id":                schema.StringAttribute{Computed: true, MarkdownDescription: "Stable organization/name identifier."},
-			"organization":      schema.StringAttribute{Computed: true},
+			"id": schema.StringAttribute{Computed: true, MarkdownDescription: "Stable organization/name identifier."},
+			"organization": schema.StringAttribute{
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
 			"name":              schema.StringAttribute{Required: true, PlanModifiers: replace, Validators: nameValidators},
 			"group":             schema.StringAttribute{Required: true, PlanModifiers: replace, Validators: nameValidators},
 			"size_limit_bytes":  schema.Int64Attribute{Optional: true, Computed: true, Validators: []validator.Int64{int64validator.AtLeast(1)}, MarkdownDescription: "Maximum database size in bytes. Uses Turso's account default when omitted."},
@@ -152,19 +155,31 @@ func (r *databaseResource) Update(ctx context.Context, req resource.UpdateReques
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
 	}
+	org := plan.Organization.ValueString()
+	if plan.Organization.IsNull() || plan.Organization.IsUnknown() || org == "" {
+		var state databaseResourceModel
+		resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		org = state.Organization.ValueString()
+	}
+	if org == "" {
+		org = r.client.Organization()
+	}
 	sizeLimit := strconv.FormatInt(plan.SizeLimitBytes.ValueInt64(), 10)
 	opCtx, cancel := operationContext(ctx)
 	defer cancel()
-	if err := r.client.UpdateDatabaseConfiguration(opCtx, plan.Organization.ValueString(), plan.Name.ValueString(), sizeLimit, plan.DeleteProtection.ValueBool()); err != nil {
+	if err := r.client.UpdateDatabaseConfiguration(opCtx, org, plan.Name.ValueString(), sizeLimit, plan.DeleteProtection.ValueBool()); err != nil {
 		resp.Diagnostics.AddError("Unable to update Turso database", err.Error())
 		return
 	}
-	database, configuration, err := waitForDatabaseConfiguration(opCtx, r.client, plan.Organization.ValueString(), plan.Name.ValueString(), plan.SizeLimitBytes.ValueInt64(), true, plan.DeleteProtection.ValueBool())
+	database, configuration, err := waitForDatabaseConfiguration(opCtx, r.client, org, plan.Name.ValueString(), plan.SizeLimitBytes.ValueInt64(), true, plan.DeleteProtection.ValueBool())
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to refresh Turso database", err.Error())
 		return
 	}
-	setDatabaseResourceState(ctx, &plan, plan.Organization.ValueString(), database, configuration, &resp.Diagnostics)
+	setDatabaseResourceState(ctx, &plan, org, database, configuration, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

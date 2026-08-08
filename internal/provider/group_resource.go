@@ -47,8 +47,11 @@ func (r *groupResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages a Turso database group. Disable delete_protection in a separate apply before destroying it.",
 		Attributes: map[string]schema.Attribute{
-			"id":                schema.StringAttribute{Computed: true, MarkdownDescription: "Stable organization/name identifier."},
-			"organization":      schema.StringAttribute{Computed: true},
+			"id": schema.StringAttribute{Computed: true, MarkdownDescription: "Stable organization/name identifier."},
+			"organization": schema.StringAttribute{
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
 			"name":              schema.StringAttribute{Required: true, PlanModifiers: replace, Validators: []validator.String{stringvalidator.RegexMatches(objectNamePattern, "must contain lowercase letters, digits, and dashes and be at most 64 characters")}},
 			"location":          schema.StringAttribute{Required: true, PlanModifiers: replace, Validators: []validator.String{stringvalidator.RegexMatches(objectNamePattern, "must be a valid Turso location key")}, MarkdownDescription: "Initial primary location key."},
 			"delete_protection": schema.BoolAttribute{Optional: true, Computed: true, Default: booldefault.StaticBool(true)},
@@ -173,6 +176,17 @@ func (r *groupResource) Update(ctx context.Context, req resource.UpdateRequest, 
 		return
 	}
 	org := plan.Organization.ValueString()
+	if plan.Organization.IsNull() || plan.Organization.IsUnknown() || org == "" {
+		var state groupResourceModel
+		resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		org = state.Organization.ValueString()
+	}
+	if org == "" {
+		org = r.client.Organization()
+	}
 	opCtx, cancel := operationContext(ctx)
 	defer cancel()
 	if err := r.client.UpdateGroupConfiguration(opCtx, org, plan.Name.ValueString(), plan.DeleteProtection.ValueBool()); err != nil {

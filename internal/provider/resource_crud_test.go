@@ -85,10 +85,11 @@ func TestGroupResourceCRUDAndDeleteProtection(t *testing.T) {
 	}
 
 	state.DeleteProtection = types.BoolValue(false)
+	state.Organization = types.StringUnknown()
 	updatePlan := tfsdk.Plan{Schema: schemaResponse.Schema}
 	_ = updatePlan.Set(ctx, &state)
 	updateResponse := resource.UpdateResponse{State: tfsdk.State{Schema: schemaResponse.Schema}}
-	r.Update(ctx, resource.UpdateRequest{Plan: updatePlan}, &updateResponse)
+	r.Update(ctx, resource.UpdateRequest{Plan: updatePlan, State: createResponse.State}, &updateResponse)
 	if updateResponse.Diagnostics.HasError() || deleteProtection {
 		t.Fatalf("update diagnostics=%v protection=%v", updateResponse.Diagnostics, deleteProtection)
 	}
@@ -223,10 +224,11 @@ func TestDatabaseResourceCRUDAndDeleteProtection(t *testing.T) {
 
 	state.DeleteProtection = types.BoolValue(false)
 	state.SizeLimitBytes = types.Int64Value(600_000_000)
+	state.Organization = types.StringUnknown()
 	updatePlan := tfsdk.Plan{Schema: schemaResponse.Schema}
 	_ = updatePlan.Set(ctx, &state)
 	updateResponse := resource.UpdateResponse{State: tfsdk.State{Schema: schemaResponse.Schema}}
-	r.Update(ctx, resource.UpdateRequest{Plan: updatePlan}, &updateResponse)
+	r.Update(ctx, resource.UpdateRequest{Plan: updatePlan, State: createResponse.State}, &updateResponse)
 	if updateResponse.Diagnostics.HasError() || configuration.DeleteProtection || configuration.SizeLimit != "600000000" {
 		t.Fatalf("update diagnostics=%v configuration=%#v", updateResponse.Diagnostics, configuration)
 	}
