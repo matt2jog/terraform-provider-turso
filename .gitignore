@@ -1,0 +1,17 @@
+# Build and test output
+terraform-provider-turso*
+coverage.out
+dist/
+
+# Terraform working directories and local state
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# Local credentials and IDE files
+.env
+.idea/
+.vscode/
+*.swp
