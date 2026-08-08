@@ -84,6 +84,11 @@ func TestGroupResourceCRUDAndDeleteProtection(t *testing.T) {
 		t.Fatalf("protected delete diagnostics=%v exists=%v", protectedDelete.Diagnostics, exists)
 	}
 
+	fallbackClient, err := client.New(server.URL, "secret", "fallback", "test", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.client = fallbackClient
 	state.DeleteProtection = types.BoolValue(false)
 	state.Organization = types.StringUnknown()
 	updatePlan := tfsdk.Plan{Schema: schemaResponse.Schema}
@@ -222,6 +227,11 @@ func TestDatabaseResourceCRUDAndDeleteProtection(t *testing.T) {
 		t.Fatalf("protected delete diagnostics=%v exists=%v", protectedDelete.Diagnostics, exists)
 	}
 
+	fallbackClient, err := client.New(server.URL, "secret", "fallback", "test", server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.client = fallbackClient
 	state.DeleteProtection = types.BoolValue(false)
 	state.SizeLimitBytes = types.Int64Value(600_000_000)
 	state.Organization = types.StringUnknown()
