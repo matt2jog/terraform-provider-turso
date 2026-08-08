@@ -23,9 +23,21 @@ jobs:
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.PASSPHRASE }}
+      - name: Prepare non-interactive signing
+        shell: bash
+        env:
+          SIGNING_PASSPHRASE: ${{ secrets.PASSPHRASE }}
+        run: |
+          install -m 600 /dev/null "${RUNNER_TEMP}/gpg-passphrase"
+          printf '%s' "${SIGNING_PASSPHRASE}" > "${RUNNER_TEMP}/gpg-passphrase"
+          echo "GPG_PASSPHRASE_FILE=${RUNNER_TEMP}/gpg-passphrase" >> "${GITHUB_ENV}"
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        run: rm -f -- "${RUNNER_TEMP}/gpg-passphrase"
