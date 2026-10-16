@@ -62,7 +62,7 @@ type DatabaseConfiguration struct {
 
 type UpdateDatabaseConfigurationRequest struct {
 	SizeLimit        string `json:"size_limit,omitempty"`
-	DeleteProtection bool   `json:"delete_protection"`
+	DeleteProtection *bool  `json:"delete_protection,omitempty"`
 }
 
 type LocationListResponse struct {

@@ -177,8 +177,12 @@ func TestDatabaseResourceCRUDAndDeleteProtection(t *testing.T) {
 		case r.Method == http.MethodPatch && r.URL.Path == "/v1/organizations/acme/databases/career/configuration":
 			var body client.UpdateDatabaseConfigurationRequest
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			configuration.SizeLimit = body.SizeLimit
-			configuration.DeleteProtection = body.DeleteProtection
+			if body.SizeLimit != "" {
+				configuration.SizeLimit = body.SizeLimit
+			}
+			if body.DeleteProtection != nil {
+				configuration.DeleteProtection = *body.DeleteProtection
+			}
 			_ = json.NewEncoder(w).Encode(configuration)
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/organizations/acme/databases/career/configuration":
 			_ = json.NewEncoder(w).Encode(configuration)

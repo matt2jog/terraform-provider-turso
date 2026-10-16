@@ -110,8 +110,7 @@ func (c *Client) CreateDatabase(ctx context.Context, org, name, group, sizeLimit
 	return &result.Database, nil
 }
 
-func (c *Client) UpdateDatabaseConfiguration(ctx context.Context, org, name, sizeLimit string, deleteProtection bool) error {
-	body := UpdateDatabaseConfigurationRequest{SizeLimit: sizeLimit, DeleteProtection: deleteProtection}
+func (c *Client) UpdateDatabaseConfiguration(ctx context.Context, org, name string, body UpdateDatabaseConfigurationRequest) error {
 	var result DatabaseConfiguration
 	return c.request(ctx, http.MethodPatch, orgPath(org, "databases", name, "configuration"), body, &result)
 }

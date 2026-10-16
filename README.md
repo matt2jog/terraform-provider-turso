@@ -42,6 +42,17 @@ Protected objects require a deliberate two-step deletion: set
 `delete_protection = false` and apply, then destroy. The provider never lowers
 protection automatically during destroy.
 
+Database updates PATCH only changed configuration settings. The provider then
+reads the configuration to confirm both planned size and deletion protection,
+including settings omitted from that PATCH.
+
+API failure diagnostics report the HTTP status, an allowlisted structured error
+code category, and size-limit, deletion-protection, and plan/quota hint booleans.
+Hints indicate matching response terms, not a confirmed cause. Only known JSON
+`message`, `error`, and `code` fields within an 8 KiB body are inspected in memory;
+unknown codes, malformed JSON, and oversized bodies remain unclassified. Raw
+response text, request paths, URLs, and headers are never included in diagnostics.
+
 ## Authentication
 
 Use an organization-scoped Turso Platform API token where possible. Supply it

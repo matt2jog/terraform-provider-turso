@@ -79,11 +79,11 @@ func TestRequestHeadersAndRedactedAPIError(t *testing.T) {
 	}
 }
 
-func TestTransportErrorRedactsToken(t *testing.T) {
+func TestTransportErrorOmitsPrivateDetails(t *testing.T) {
 	t.Parallel()
 	const token = "transport-secret-token"
 	httpClient := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return nil, errors.New("upstream accidentally repeated " + token)
+		return nil, errors.New("upstream accidentally repeated " + token + " https://private.example/organizations/private-org/databases/private-db")
 	})}
 	apiClient, err := New("https://api.turso.tech", token, "acme", "test", httpClient)
 	if err != nil {
@@ -91,8 +91,8 @@ func TestTransportErrorRedactsToken(t *testing.T) {
 	}
 	apiClient.maxAttempts = 1
 	_, err = apiClient.ListLocations(context.Background())
-	if err == nil || strings.Contains(err.Error(), token) || !strings.Contains(err.Error(), "[REDACTED]") {
-		t.Fatalf("transport error was not safely redacted: %v", err)
+	if err == nil || err.Error() != "Turso API transport failure" {
+		t.Fatalf("transport error was not safely classified: %v", err)
 	}
 }
 
@@ -244,8 +244,12 @@ func TestDatabaseCRUDAndConfiguration(t *testing.T) {
 		case r.Method == http.MethodPatch && r.URL.Path == "/v1/organizations/acme/databases/career/configuration":
 			var body UpdateDatabaseConfigurationRequest
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			configuration.SizeLimit = body.SizeLimit
-			configuration.DeleteProtection = body.DeleteProtection
+			if body.SizeLimit != "" {
+				configuration.SizeLimit = body.SizeLimit
+			}
+			if body.DeleteProtection != nil {
+				configuration.DeleteProtection = *body.DeleteProtection
+			}
 			_ = json.NewEncoder(w).Encode(configuration)
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/organizations/acme/databases/career/configuration":
 			if !exists {
@@ -265,7 +269,8 @@ func TestDatabaseCRUDAndConfiguration(t *testing.T) {
 	if _, err := apiClient.CreateDatabase(context.Background(), "acme", "career", "main", "500000000"); err != nil {
 		t.Fatalf("CreateDatabase() error = %v", err)
 	}
-	if err := apiClient.UpdateDatabaseConfiguration(context.Background(), "acme", "career", "600000000", true); err != nil {
+	deleteProtection := true
+	if err := apiClient.UpdateDatabaseConfiguration(context.Background(), "acme", "career", UpdateDatabaseConfigurationRequest{SizeLimit: "600000000", DeleteProtection: &deleteProtection}); err != nil {
 		t.Fatalf("UpdateDatabaseConfiguration() error = %v", err)
 	}
 	database, config, err := apiClient.WaitForDatabase(context.Background(), "acme", "career", true)

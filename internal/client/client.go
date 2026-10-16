@@ -15,21 +15,24 @@ import (
 )
 
 const (
-	defaultBaseURL  = "https://api.turso.tech"
-	defaultAttempts = 5
-	maxBodyBytes    = 2 << 20
+	defaultBaseURL    = "https://api.turso.tech"
+	defaultAttempts   = 5
+	maxBodyBytes      = 2 << 20
+	maxErrorBodyBytes = 8 << 10
 )
 
 var ErrNotFound = errors.New("turso object not found")
 
 type APIError struct {
-	StatusCode int
-	Method     string
-	Path       string
+	StatusCode           int
+	Reason               ErrorReason
+	SizeLimitHint        bool
+	DeleteProtectionHint bool
+	PlanOrQuotaHint      bool
 }
 
 func (e *APIError) Error() string {
-	return fmt.Sprintf("Turso API request failed: %s %s returned HTTP %d", e.Method, e.Path, e.StatusCode)
+	return fmt.Sprintf("Turso API request failed: HTTP %d (reason=%s, size_limit_hint=%t, delete_protection_hint=%t, plan_or_quota_hint=%t)", e.StatusCode, safeErrorReason(e.Reason), e.SizeLimitHint, e.DeleteProtectionHint, e.PlanOrQuotaHint)
 }
 
 type Client struct {
@@ -87,7 +90,7 @@ func (c *Client) request(ctx context.Context, method, path string, requestBody, 
 	if requestBody != nil {
 		encoded, err = json.Marshal(requestBody)
 		if err != nil {
-			return fmt.Errorf("encode Turso request: %w", err)
+			return safeRequestFailure("encode Turso request failed", err)
 		}
 	}
 
@@ -103,7 +106,7 @@ func (c *Client) request(ctx context.Context, method, path string, requestBody, 
 		u := c.baseURL.ResolveReference(&url.URL{Path: path})
 		req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(encoded))
 		if err != nil {
-			return fmt.Errorf("create Turso request: %w", err)
+			return safeRequestFailure("create Turso request failed", err)
 		}
 		req.Header.Set("Authorization", "Bearer "+c.token)
 		req.Header.Set("Accept", "application/json")
@@ -123,16 +126,20 @@ func (c *Client) request(ctx context.Context, method, path string, requestBody, 
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
 			}
-			return fmt.Errorf("Turso API transport failure: %s", strings.ReplaceAll(err.Error(), c.token, "[REDACTED]"))
+			return safeRequestFailure("Turso API transport failure", err)
 		}
 
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+		bodyLimit := int64(maxBodyBytes)
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			bodyLimit = maxErrorBodyBytes + 1
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, bodyLimit))
 		closeErr := resp.Body.Close()
 		if readErr != nil {
-			return fmt.Errorf("read Turso response: %w", readErr)
+			return safeRequestFailure("read Turso response failed", readErr)
 		}
 		if closeErr != nil {
-			return fmt.Errorf("close Turso response: %w", closeErr)
+			return safeRequestFailure("close Turso response failed", closeErr)
 		}
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -140,7 +147,7 @@ func (c *Client) request(ctx context.Context, method, path string, requestBody, 
 				return nil
 			}
 			if err := json.Unmarshal(body, responseBody); err != nil {
-				return fmt.Errorf("decode Turso response: %w", err)
+				return safeRequestFailure("decode Turso response failed", err)
 			}
 			return nil
 		}
@@ -154,9 +161,21 @@ func (c *Client) request(ctx context.Context, method, path string, requestBody, 
 			}
 			continue
 		}
-		return &APIError{StatusCode: resp.StatusCode, Method: method, Path: path}
+		return newAPIError(resp.StatusCode, body)
 	}
 	return errors.New("Turso API retry budget exhausted")
+}
+
+// Preserve standard context classification without retaining an error that may
+// contain URLs, credentials, resource coordinates or response content.
+func safeRequestFailure(message string, err error) error {
+	if errors.Is(err, context.Canceled) {
+		return fmt.Errorf("%s: %w", message, context.Canceled)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s: %w", message, context.DeadlineExceeded)
+	}
+	return errors.New(message)
 }
 
 func (c *Client) delay(attempt int, retryAfter string) time.Duration {
