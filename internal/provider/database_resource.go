@@ -113,7 +113,8 @@ func (r *databaseResource) Create(ctx context.Context, req resource.CreateReques
 		resp.Diagnostics.AddError("Turso database did not become ready", err.Error())
 		return
 	}
-	if err := r.client.UpdateDatabaseConfiguration(opCtx, org, plan.Name.ValueString(), sizeLimit, desiredDeleteProtection); err != nil {
+	configurationRequest := client.UpdateDatabaseConfigurationRequest{SizeLimit: sizeLimit, DeleteProtection: &desiredDeleteProtection}
+	if err := r.client.UpdateDatabaseConfiguration(opCtx, org, plan.Name.ValueString(), configurationRequest); err != nil {
 		resp.Diagnostics.AddError("Unable to configure Turso database", err.Error())
 		return
 	}
@@ -150,29 +151,46 @@ func (r *databaseResource) Read(ctx context.Context, req resource.ReadRequest, r
 }
 
 func (r *databaseResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan databaseResourceModel
+	var plan, state databaseResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() || r.client == nil {
 		return
 	}
 	org := plan.Organization.ValueString()
 	if plan.Organization.IsNull() || plan.Organization.IsUnknown() || org == "" {
-		var state databaseResourceModel
-		resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
 		org = state.Organization.ValueString()
 	}
 	if org == "" {
 		org = r.client.Organization()
 	}
-	sizeLimit := strconv.FormatInt(plan.SizeLimitBytes.ValueInt64(), 10)
+	// Optional computed settings may be unknown when omitted from configuration.
+	// Preserve their prior targets so the full configuration can still be checked.
+	if plan.SizeLimitBytes.IsUnknown() {
+		plan.SizeLimitBytes = state.SizeLimitBytes
+	}
+	if plan.DeleteProtection.IsUnknown() {
+		plan.DeleteProtection = state.DeleteProtection
+	}
+	if plan.SizeLimitBytes.IsNull() || plan.SizeLimitBytes.IsUnknown() || plan.DeleteProtection.IsNull() || plan.DeleteProtection.IsUnknown() {
+		resp.Diagnostics.AddError("Unable to update Turso database", "Both size_limit_bytes and delete_protection must have known planned or prior values before updating configuration.")
+		return
+	}
+	configurationRequest := client.UpdateDatabaseConfigurationRequest{}
+	if !plan.SizeLimitBytes.Equal(state.SizeLimitBytes) {
+		configurationRequest.SizeLimit = strconv.FormatInt(plan.SizeLimitBytes.ValueInt64(), 10)
+	}
+	if !plan.DeleteProtection.Equal(state.DeleteProtection) {
+		deleteProtection := plan.DeleteProtection.ValueBool()
+		configurationRequest.DeleteProtection = &deleteProtection
+	}
 	opCtx, cancel := operationContext(ctx)
 	defer cancel()
-	if err := r.client.UpdateDatabaseConfiguration(opCtx, org, plan.Name.ValueString(), sizeLimit, plan.DeleteProtection.ValueBool()); err != nil {
-		resp.Diagnostics.AddError("Unable to update Turso database", err.Error())
-		return
+	if configurationRequest.SizeLimit != "" || configurationRequest.DeleteProtection != nil {
+		if err := r.client.UpdateDatabaseConfiguration(opCtx, org, plan.Name.ValueString(), configurationRequest); err != nil {
+			resp.Diagnostics.AddError("Unable to update Turso database", err.Error())
+			return
+		}
 	}
 	database, configuration, err := waitForDatabaseConfiguration(opCtx, r.client, org, plan.Name.ValueString(), plan.SizeLimitBytes.ValueInt64(), true, plan.DeleteProtection.ValueBool())
 	if err != nil {
