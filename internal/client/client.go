@@ -29,10 +29,30 @@ type APIError struct {
 	SizeLimitHint        bool
 	DeleteProtectionHint bool
 	PlanOrQuotaHint      bool
+	ConstraintHint       bool
+	ParsingHint          bool
+	TypeHint             bool
+	UnitHint             bool
+	RangeHint            bool
+	MinimumHint          bool
+	MaximumHint          bool
+	BelowCurrentHint     bool
+	UnsupportedHint      bool
+	ImmutableHint        bool
+	AllowanceHint        bool
+	BodyShape            ErrorBodyShape
+	MessageFieldPresent  bool
+	ErrorFieldPresent    bool
+	CodeFieldPresent     bool
+	NestedErrorObject    bool
 }
 
 func (e *APIError) Error() string {
-	return fmt.Sprintf("Turso API request failed: HTTP %d (reason=%s, size_limit_hint=%t, delete_protection_hint=%t, plan_or_quota_hint=%t)", e.StatusCode, safeErrorReason(e.Reason), e.SizeLimitHint, e.DeleteProtectionHint, e.PlanOrQuotaHint)
+	return fmt.Sprintf("Turso API request failed: HTTP %d (reason=%s, size_limit_hint=%t, delete_protection_hint=%t, plan_or_quota_hint=%t) diagnostics=(constraint_hint=%t, parsing_hint=%t, type_hint=%t, unit_hint=%t, range_hint=%t, minimum_hint=%t, maximum_hint=%t, below_current_hint=%t, unsupported_hint=%t, immutable_hint=%t, allowance_hint=%t, body_shape=%s, message_field_present=%t, error_field_present=%t, code_field_present=%t, nested_error_object_present=%t)",
+		e.StatusCode, safeErrorReason(e.Reason), e.SizeLimitHint, e.DeleteProtectionHint, e.PlanOrQuotaHint,
+		e.ConstraintHint, e.ParsingHint, e.TypeHint, e.UnitHint, e.RangeHint, e.MinimumHint, e.MaximumHint,
+		e.BelowCurrentHint, e.UnsupportedHint, e.ImmutableHint, e.AllowanceHint, safeErrorBodyShape(e.BodyShape),
+		e.MessageFieldPresent, e.ErrorFieldPresent, e.CodeFieldPresent, e.NestedErrorObject)
 }
 
 type Client struct {
